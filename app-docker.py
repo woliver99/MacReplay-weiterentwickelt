@@ -1873,28 +1873,52 @@ def channel(portalId, channelId):
             )
             logger.info("Unoccupied Portal({}):MAC({})".format(portalId, mac))
 
+ffmpeg_sp = None
+try:
+    startTime = datetime.now(timezone.utc).timestamp()
+    occupy()
+    # start ffmpeg subprocess
+    ffmpeg_sp = subprocess.Popen(
+        ffmpegcmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+
+    # stream data while process is alive
+    while True:
+        chunk = ffmpeg_sp.stdout.read(1024)
+        if len(chunk) == 0:
+            # check exit code; poll() may return None if still running
+            code = ffmpeg_sp.poll()
+            if code is not None and code != 0:
+                logger.info("Ffmpeg closed with code {} for Portal({})".format(code, portalName))
+                moveMac(portalId, mac)
+            break
+        yield chunk
+
+except Exception as e:
+    # log the exception so you can see what failed
+    logger.exception("Error while streaming portal %s mac %s: %s", portalId, mac, e)
+finally:
+    try:
+        unoccupy()
+    except Exception:
+        logger.exception("Failed to unoccupy portal %s", portalId)
+
+    # only kill if the process was created and is still running
+    if ffmpeg_sp is not None:
+        # prefer terminate() first, then kill if still alive
         try:
-            startTime = datetime.now(timezone.utc).timestamp()
-            occupy()
-            with subprocess.Popen(
-                ffmpegcmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            ) as ffmpeg_sp:
-                while True:
-                    chunk = ffmpeg_sp.stdout.read(1024)
-                    if len(chunk) == 0:
-                        if ffmpeg_sp.poll() != 0:
-                            logger.info("Ffmpeg closed with error({}). Moving MAC({}) for Portal({})".format(str(ffmpeg_sp.poll()), mac, portalName))
-                            moveMac(portalId, mac)
-                        break
-                    yield chunk
-        except:
-            pass
-        finally:
-            unoccupy()
-            ffmpeg_sp.kill()
+            if ffmpeg_sp.poll() is None:
+                ffmpeg_sp.terminate()
+                # optional: wait a short time for graceful shutdown
+                try:
+                    ffmpeg_sp.wait(timeout=1)
+                except Exception:
+                    ffmpeg_sp.kill()
+        except Exception:
+            logger.exception("Failed to terminate/kill ffmpeg for portal %s", portalId)
 
     def testStream():
         timeout = int(getSettings()["ffmpeg timeout"]) * int(1000000)
