@@ -4944,10 +4944,44 @@ def xc_users_kick():
 
 @app.route("/playlist.m3u", methods=["GET"])
 def playlist():
+    """Main M3U playlist with configurable access control and Basic Auth support."""
     settings = getSettings()
-    if settings.get("public playlist access", "true") != "true":
-        return xc_auth_optional(lambda: _playlist())()
-    return _playlist()
+    public_access = settings.get("public playlist access", "true") == "true"
+    
+    if public_access:
+        # Public access enabled - no authentication required
+        return _playlist()
+    else:
+        # Public access disabled - require Basic Auth
+        auth = request.authorization
+        if not auth or not auth.username or not auth.password:
+            # No Basic Auth provided - return 401 with WWW-Authenticate header
+            response = Response(
+                'Authentication required\n'
+                'Please provide Basic Auth credentials in the URL:\n'
+                'http://username:password@host/playlist.m3u',
+                401,
+                {'WWW-Authenticate': 'Basic realm="MacReplayXC Main Playlist"'}
+            )
+            return response
+        
+        # Validate Basic Auth credentials
+        system_username = settings.get("username", "admin")
+        system_password = settings.get("password", "12345")
+        
+        if auth.username != system_username or auth.password != system_password:
+            logger.warning(f"Invalid Basic Auth credentials for main playlist: {auth.username}")
+            response = Response(
+                'Invalid credentials\n'
+                'Please check your username and password.',
+                401,
+                {'WWW-Authenticate': 'Basic realm="MacReplayXC Main Playlist"'}
+            )
+            return response
+        
+        # Authentication successful
+        logger.info(f"Basic Auth successful for main playlist: {auth.username}")
+        return _playlist()
 
 def _playlist():
     global cached_playlist, last_playlist_host
@@ -5605,10 +5639,44 @@ def refresh_xmltv():
     
 @app.route("/xmltv", methods=["GET"])
 def xmltv():
+    """XMLTV EPG with configurable access control and Basic Auth support."""
     settings = getSettings()
-    if settings.get("public playlist access", "true") != "true":
-        return xc_auth_optional(lambda: _xmltv())()
-    return _xmltv()
+    public_access = settings.get("public playlist access", "true") == "true"
+    
+    if public_access:
+        # Public access enabled - no authentication required
+        return _xmltv()
+    else:
+        # Public access disabled - require Basic Auth
+        auth = request.authorization
+        if not auth or not auth.username or not auth.password:
+            # No Basic Auth provided - return 401 with WWW-Authenticate header
+            response = Response(
+                'Authentication required\n'
+                'Please provide Basic Auth credentials in the URL:\n'
+                'http://username:password@host/xmltv',
+                401,
+                {'WWW-Authenticate': 'Basic realm="MacReplayXC XMLTV"'}
+            )
+            return response
+        
+        # Validate Basic Auth credentials
+        system_username = settings.get("username", "admin")
+        system_password = settings.get("password", "12345")
+        
+        if auth.username != system_username or auth.password != system_password:
+            logger.warning(f"Invalid Basic Auth credentials for XMLTV: {auth.username}")
+            response = Response(
+                'Invalid credentials\n'
+                'Please check your username and password.',
+                401,
+                {'WWW-Authenticate': 'Basic realm="MacReplayXC XMLTV"'}
+            )
+            return response
+        
+        # Authentication successful
+        logger.info(f"Basic Auth successful for XMLTV: {auth.username}")
+        return _xmltv()
 
 def _xmltv():
     global cached_xmltv, last_updated
